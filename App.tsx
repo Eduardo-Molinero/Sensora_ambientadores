@@ -475,46 +475,52 @@ export default function App() {
             </View>
           </View>
 
-          {isSupabaseConfigured ? (
-            <>
-              <TextInput
-                style={styles.loginInput}
-                value={loginEmail}
-                onChangeText={setLoginEmail}
-                placeholder="Correo electrónico"
-                placeholderTextColor={colors.muted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-                textContentType="emailAddress"
-              />
-              <TextInput
-                style={styles.loginInput}
-                value={loginPassword}
-                onChangeText={setLoginPassword}
-                placeholder="Contraseña"
-                placeholderTextColor={colors.muted}
-                secureTextEntry
-                autoCapitalize="none"
-                autoComplete="password"
-                textContentType="password"
-                onSubmitEditing={() => void handleLogin()}
-              />
-              {loginError ? <Text style={styles.loginError}>{loginError}</Text> : null}
-              <Pressable disabled={isLoggingIn} style={[styles.loginButton, isLoggingIn && styles.loginButtonDisabled]} onPress={() => void handleLogin()}>
-                <Text style={styles.loginButtonText}>{isLoggingIn ? 'Verificando…' : 'Iniciar sesión'}</Text>
-              </Pressable>
-            </>
-          ) : (
+          <TextInput
+            style={styles.loginInput}
+            value={loginEmail}
+            onChangeText={setLoginEmail}
+            placeholder="Correo electrónico"
+            placeholderTextColor={colors.muted}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
+          />
+          <TextInput
+            style={styles.loginInput}
+            value={loginPassword}
+            onChangeText={setLoginPassword}
+            placeholder="Contraseña"
+            placeholderTextColor={colors.muted}
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="password"
+            textContentType="password"
+            onSubmitEditing={() => {
+              if (isSupabaseConfigured) void handleLogin();
+            }}
+          />
+          {loginError ? <Text style={styles.loginError}>{loginError}</Text> : null}
+          <Pressable
+            disabled={!isSupabaseConfigured || isLoggingIn}
+            style={[styles.loginButton, (!isSupabaseConfigured || isLoggingIn) && styles.loginButtonDisabled]}
+            onPress={() => void handleLogin()}
+          >
+            <Text style={styles.loginButtonText}>
+              {isLoggingIn ? 'Verificando…' : isSupabaseConfigured ? 'Iniciar sesión' : 'Conexión pendiente'}
+            </Text>
+          </Pressable>
+
+          {!isSupabaseConfigured ? (
             <>
               <View style={styles.loginNotice}>
-                <Text style={styles.loginNoticeText}>Supabase aún no está configurado. Este acceso es solo de demostración.</Text>
+                <Text style={styles.loginNoticeText}>Añade la URL y la clave pública de Supabase a `.env` para habilitar el acceso real.</Text>
               </View>
               <Pressable style={styles.loginButton} onPress={handleDemoLogin}>
                 <Text style={styles.loginButtonText}>Entrar en modo demo</Text>
               </Pressable>
             </>
-          )}
+          ) : null}
 
           <Pressable style={styles.loginBackButton} onPress={() => setShowLogin(false)}>
             <Text style={styles.loginBackText}>Volver a los accesos</Text>
