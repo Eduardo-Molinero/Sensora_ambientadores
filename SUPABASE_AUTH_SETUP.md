@@ -24,7 +24,7 @@ on conflict (user_id) do update set role = excluded.role, full_name = excluded.f
 insert into public.sensora_profiles (user_id, role, full_name)
 select id, 'cliente', 'Cliente de prueba'
 from auth.users
-where email = 'cliente.pruebas@sensora.test'
+where email = 'cliente.pruebas@sensora.com'
 on conflict (user_id) do update set role = excluded.role, full_name = excluded.full_name;
 ```
 
