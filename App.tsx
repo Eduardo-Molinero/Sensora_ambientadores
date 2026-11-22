@@ -100,6 +100,7 @@ const commercialInstallationsByClient: Record<string, { name: string; scent: str
 
 type Screen = 'landing' | 'administrador' | 'adminSolicitudes' | 'comercial' | 'cliente';
 type UserRole = 'administrador' | 'comercial' | 'cliente';
+const AUTH_ENABLED = false;
 
 const getScreenFromLocation = (): Screen => {
   if (typeof window === 'undefined') return 'landing';
@@ -258,7 +259,7 @@ export default function App() {
 
   const navigateToScreen = (nextScreen: Screen, roleOverride?: UserRole, authenticatedOverride = false) => {
     const activeRole = roleOverride ?? currentRole;
-    const canOpenProtectedScreen = !isSupabaseConfigured || isAuthenticated || authenticatedOverride;
+    const canOpenProtectedScreen = !AUTH_ENABLED || !isSupabaseConfigured || isAuthenticated || authenticatedOverride;
     const destination = nextScreen === 'landing' || canOpenProtectedScreen
       ? activeRole === 'administrador' || nextScreen === 'landing' ? nextScreen : getScreenForRole(activeRole)
       : 'landing';
@@ -355,7 +356,7 @@ export default function App() {
 
     const handleHistoryChange = () => {
       const requestedScreen = getScreenFromLocation();
-      const canOpenProtectedScreen = !isSupabaseConfigured || isAuthenticated;
+      const canOpenProtectedScreen = !AUTH_ENABLED || !isSupabaseConfigured || isAuthenticated;
       const destination = requestedScreen === 'landing' || canOpenProtectedScreen
         ? currentRole === 'administrador' || requestedScreen === 'landing' ? requestedScreen : getScreenForRole(currentRole)
         : 'landing';
@@ -378,7 +379,7 @@ export default function App() {
   }, [currentRole, isAuthenticated]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) return;
+    if (!AUTH_ENABLED || !isSupabaseConfigured || !supabase) return;
     let isMounted = true;
 
     void restoreUserRole()
@@ -399,7 +400,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) return;
+    if (!AUTH_ENABLED || !isSupabaseConfigured || !supabase) return;
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_OUT' && isAuthenticated) {
@@ -443,7 +444,13 @@ export default function App() {
             setLoginEmail('');
             setLoginPassword('');
             setLoginError('');
-            setShowLogin(true);
+            if (AUTH_ENABLED) {
+              setShowLogin(true);
+              return;
+            }
+            setCurrentRole(role.key);
+            setActiveTab(role.key === 'comercial' ? 'Clientes' : role.key === 'cliente' ? 'Instalaciones' : 'Panel');
+            navigateToScreen(getScreenForRole(role.key), role.key);
           }}
           style={styles.roleCard}
         >
