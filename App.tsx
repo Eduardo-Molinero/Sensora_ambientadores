@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   SafeAreaView,
@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
   useWindowDimensions,
+  type ScrollViewInstance,
 } from 'react-native';
 import { restoreUserRole, signInForRole, signOutUser } from './src/lib/auth';
 import { isSupabaseConfigured, supabase } from './src/lib/supabase';
@@ -149,6 +150,7 @@ const getScreenForRole = (role: UserRole): Screen => {
 
 export default function App() {
   const { width } = useWindowDimensions();
+  const contentScrollRef = useRef<ScrollViewInstance>(null);
   const [screen, setScreen] = useState<Screen>(() => isSupabaseConfigured ? 'landing' : getScreenFromLocation());
   const [currentRole, setCurrentRole] = useState<UserRole>(() => isSupabaseConfigured ? 'administrador' : getRoleFromScreen(getScreenFromLocation()));
   const [activeTab, setActiveTab] = useState(() => {
@@ -195,8 +197,8 @@ export default function App() {
       { label: 'Más', icon: '☰' },
     ]
     : currentRole === 'comercial'
-      ? [{ label: 'Clientes', icon: '👥' }, { label: 'Instalaciones', icon: '📍' }]
-      : [{ label: 'Instalaciones', icon: '📍' }, { label: 'Solicitudes', icon: '📨' }, { label: 'Aromas', icon: '🌿' }];
+      ? [{ label: 'Inicio', icon: '🏠' }, { label: 'Clientes', icon: '👥' }, { label: 'Instalaciones', icon: '📍' }]
+      : [{ label: 'Inicio', icon: '🏠' }, { label: 'Instalaciones', icon: '📍' }, { label: 'Solicitudes', icon: '📨' }, { label: 'Aromas', icon: '🌿' }];
   const roleLabel = currentRole.toUpperCase();
 
   const filters = ['Todas', 'Pendiente', 'Aprobada', 'Rechazada', 'Completada'];
@@ -328,6 +330,11 @@ export default function App() {
   };
 
   const handleBottomNavPress = (item: string) => {
+    if (item === 'Inicio' && currentRole !== 'administrador') {
+      contentScrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
+
     setActiveTab(item);
 
     if (currentRole !== 'administrador') {
@@ -778,7 +785,7 @@ export default function App() {
   const renderCatalog = () => (
     <SafeAreaView style={styles.safeAreaContent}>
       <View style={[styles.screenWrap, styles.adminScreenWrap]}>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView ref={contentScrollRef} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={[styles.layoutPanel, isMobile ? styles.layoutPanelMobile : styles.layoutPanelDesktop]}>
             <View style={styles.topHeader}>
               <Text style={styles.brandSmall}>SENSORA</Text>
@@ -816,7 +823,7 @@ export default function App() {
   const renderCommercial = () => (
     <SafeAreaView style={styles.safeAreaContent}>
       <View style={styles.screenWrap}>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView ref={contentScrollRef} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={[styles.layoutPanel, isMobile ? styles.layoutPanelMobile : styles.layoutPanelDesktop]}>
             <View style={styles.topHeader}>
               <Text style={styles.brandSmall}>SENSORA</Text>
@@ -1005,7 +1012,7 @@ export default function App() {
   const renderClient = () => (
     <SafeAreaView style={styles.safeAreaContent}>
       <View style={styles.screenWrap}>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView ref={contentScrollRef} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={[styles.layoutPanel, isMobile ? styles.layoutPanelMobile : styles.layoutPanelDesktop]}>
             <View style={styles.topHeader}>
               <Text style={styles.brandSmall}>SENSORA</Text>
