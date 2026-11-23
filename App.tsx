@@ -178,7 +178,7 @@ export default function App() {
     ]
     : currentRole === 'comercial'
       ? [{ label: 'Clientes', icon: '👥' }, { label: 'Instalaciones', icon: '📍' }]
-      : [{ label: 'Instalaciones', icon: '📍' }, { label: 'Solicitudes', icon: '📨' }];
+      : [{ label: 'Instalaciones', icon: '📍' }, { label: 'Solicitudes', icon: '📨' }, { label: 'Aromas', icon: '🌿' }];
   const roleLabel = currentRole.toUpperCase();
 
   const filters = ['Todas', 'Pendiente', 'Aprobada', 'Rechazada', 'Completada'];
@@ -280,8 +280,9 @@ export default function App() {
   const navigateToScreen = (nextScreen: Screen, roleOverride?: UserRole, authenticatedOverride = false) => {
     const activeRole = roleOverride ?? currentRole;
     const canOpenProtectedScreen = !AUTH_ENABLED || !isSupabaseConfigured || isAuthenticated || authenticatedOverride;
+    const canClientOpenCatalog = activeRole === 'cliente' && nextScreen === 'catalogo';
     const destination = nextScreen === 'landing' || canOpenProtectedScreen
-      ? activeRole === 'administrador' || nextScreen === 'landing' ? nextScreen : getScreenForRole(activeRole)
+      ? activeRole === 'administrador' || canClientOpenCatalog || nextScreen === 'landing' ? nextScreen : getScreenForRole(activeRole)
       : 'landing';
     setScreen(destination);
 
@@ -302,6 +303,10 @@ export default function App() {
     setActiveTab(item);
 
     if (currentRole !== 'administrador') {
+      if (currentRole === 'cliente' && item === 'Aromas') {
+        navigateToScreen('catalogo');
+        return;
+      }
       navigateToScreen(getScreenForRole(currentRole));
       return;
     }
@@ -383,8 +388,9 @@ export default function App() {
     const handleHistoryChange = () => {
       const requestedScreen = getScreenFromLocation();
       const canOpenProtectedScreen = !AUTH_ENABLED || !isSupabaseConfigured || isAuthenticated;
+      const canClientOpenCatalog = currentRole === 'cliente' && requestedScreen === 'catalogo';
       const destination = requestedScreen === 'landing' || canOpenProtectedScreen
-        ? currentRole === 'administrador' || requestedScreen === 'landing' ? requestedScreen : getScreenForRole(currentRole)
+        ? currentRole === 'administrador' || canClientOpenCatalog || requestedScreen === 'landing' ? requestedScreen : getScreenForRole(currentRole)
         : 'landing';
       setScreen(destination);
 
@@ -936,7 +942,7 @@ export default function App() {
       {screen === 'landing' && (showLogin ? renderLogin() : renderLanding())}
       {screen === 'administrador' && renderAdminDashboard()}
       {screen === 'adminSolicitudes' && renderAdminSolicitudes()}
-      {screen === 'catalogo' && currentRole === 'administrador' && renderCatalog()}
+      {screen === 'catalogo' && (currentRole === 'administrador' || currentRole === 'cliente') && renderCatalog()}
       {screen === 'comercial' && renderCommercial()}
       {screen === 'cliente' && renderClient()}
 
