@@ -98,7 +98,16 @@ const commercialInstallationsByClient: Record<string, { name: string; scent: str
   ],
 };
 
-type Screen = 'landing' | 'administrador' | 'adminSolicitudes' | 'comercial' | 'cliente';
+const fragranceSamples = [
+  { name: 'Coco', family: 'Tropical', icon: '🥥', note: 'Cremoso, cálido y suavemente dulce.', color: '#b98a53' },
+  { name: 'Vainilla', family: 'Dulce', icon: '🌼', note: 'Aroma envolvente con fondo delicado.', color: '#d8b66d' },
+  { name: 'Menta', family: 'Herbal', icon: '🌿', note: 'Fresco, verde y revitalizante.', color: '#6f9c79' },
+  { name: 'Canela', family: 'Especiado', icon: '🪵', note: 'Cálido, especiado y confortable.', color: '#b66b4e' },
+  { name: 'Melón', family: 'Frutal', icon: '🍈', note: 'Jugoso, ligero y de carácter veraniego.', color: '#8cab61' },
+  { name: 'Chupa Chups', family: 'Caramelo', icon: '🍭', note: 'Dulce, alegre y afrutado.', color: '#d76c78' },
+];
+
+type Screen = 'landing' | 'administrador' | 'adminSolicitudes' | 'catalogo' | 'comercial' | 'cliente';
 type UserRole = 'administrador' | 'comercial' | 'cliente';
 const AUTH_ENABLED = true;
 
@@ -112,7 +121,7 @@ const getScreenFromLocation = (): Screen => {
   if (typeof window === 'undefined') return 'landing';
 
   const rawHash = window.location.hash.replace('#', '').trim();
-  if (rawHash === 'administrador' || rawHash === 'adminSolicitudes' || rawHash === 'comercial' || rawHash === 'cliente') {
+  if (rawHash === 'administrador' || rawHash === 'adminSolicitudes' || rawHash === 'catalogo' || rawHash === 'comercial' || rawHash === 'cliente') {
     return rawHash;
   }
 
@@ -239,13 +248,18 @@ export default function App() {
       return;
     }
 
+    if (key === 'catalogo') {
+      navigateToScreen('catalogo');
+      return;
+    }
+
     if (key === 'comerciales') {
       navigateToScreen('comercial');
       setActiveTab('Clientes');
       return;
     }
 
-    if (key === 'catalogo' || key === 'productos' || key === 'informes' || key === 'configuracion') {
+    if (key === 'productos' || key === 'informes' || key === 'configuracion') {
       setDemoNotice(`Sección de demo: ${key}.`);
       navigateToScreen('administrador');
       return;
@@ -676,6 +690,44 @@ export default function App() {
     </SafeAreaView>
   );
 
+  const renderCatalog = () => (
+    <SafeAreaView style={styles.safeAreaContent}>
+      <View style={[styles.screenWrap, styles.adminScreenWrap]}>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <View style={[styles.layoutPanel, isMobile ? styles.layoutPanelMobile : styles.layoutPanelDesktop]}>
+            <View style={styles.topHeader}>
+              <Text style={styles.brandSmall}>SENSORA</Text>
+              <Pressable style={styles.roleBadge} onPress={() => void handleLogout()}>
+                <Text style={styles.roleBadgeText}>{roleLabel}</Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.dateText}>COLECCIÓN OLFATIVA</Text>
+            <Text style={styles.mainTitle}>Catálogo de aromas</Text>
+            <Text style={styles.catalogIntro}>Muestras disponibles para ambientar cada espacio.</Text>
+
+            <View style={styles.scentGrid}>
+              {fragranceSamples.map((sample) => (
+                <View key={sample.name} style={styles.scentCard}>
+                  <View style={[styles.scentSwatch, { backgroundColor: sample.color }]}>
+                    <Text style={styles.scentIcon}>{sample.icon}</Text>
+                  </View>
+                  <View style={styles.scentCopy}>
+                    <Text style={styles.scentFamily}>{sample.family}</Text>
+                    <Text style={styles.scentName}>{sample.name}</Text>
+                    <Text style={styles.scentNote}>{sample.note}</Text>
+                  </View>
+                  <View style={[styles.scentSampleBar, { backgroundColor: sample.color }]} />
+                </View>
+              ))}
+            </View>
+          </View>
+        </ScrollView>
+        {renderBottomNav()}
+      </View>
+    </SafeAreaView>
+  );
+
   const renderCommercial = () => (
     <SafeAreaView style={styles.safeAreaContent}>
       <View style={styles.screenWrap}>
@@ -884,6 +936,7 @@ export default function App() {
       {screen === 'landing' && (showLogin ? renderLogin() : renderLanding())}
       {screen === 'administrador' && renderAdminDashboard()}
       {screen === 'adminSolicitudes' && renderAdminSolicitudes()}
+      {screen === 'catalogo' && currentRole === 'administrador' && renderCatalog()}
       {screen === 'comercial' && renderCommercial()}
       {screen === 'cliente' && renderClient()}
 
@@ -1026,6 +1079,16 @@ const styles = StyleSheet.create({
   loginButtonText: { color: colors.dark, fontSize: 14, fontWeight: '700' },
   loginBackButton: { alignItems: 'center', paddingVertical: 14, marginTop: 4 },
   loginBackText: { color: colors.gold, fontSize: 13, fontWeight: '600' },
+  catalogIntro: { color: colors.muted, fontSize: 14, marginTop: -10, marginBottom: 18 },
+  scentGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingBottom: 12 },
+  scentCard: { width: '48%', minHeight: 190, flexGrow: 1, backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.line, padding: 14, overflow: 'hidden' },
+  scentSwatch: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  scentIcon: { fontSize: 24 },
+  scentCopy: { flex: 1 },
+  scentFamily: { color: colors.muted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  scentName: { color: colors.dark, fontSize: 18, fontWeight: '700', marginTop: 3, marginBottom: 5 },
+  scentNote: { color: colors.muted, fontSize: 12, lineHeight: 17 },
+  scentSampleBar: { height: 4, borderRadius: 2, marginTop: 12, opacity: 0.8 },
   deleteButton: { marginTop: 12, alignSelf: 'flex-end', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: 'rgba(215, 93, 93, 0.08)', borderWidth: 1, borderColor: colors.red },
   deleteButtonText: { color: colors.red, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
   bottomNav: { position: 'absolute', left: 20, right: 20, bottom: 18, backgroundColor: colors.dark, borderRadius: 22, paddingVertical: 10, paddingHorizontal: 10, flexDirection: 'row', justifyContent: 'space-between', borderWidth: 1, borderColor: colors.dark, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
