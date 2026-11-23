@@ -12,6 +12,13 @@ import {
 } from 'react-native';
 import { restoreUserRole, signInForRole, signOutUser } from './src/lib/auth';
 import { isSupabaseConfigured, supabase } from './src/lib/supabase';
+import {
+  createInstallation,
+  loadInstallationClients,
+  loadInstallations,
+  type InstallationClient,
+  type InstallationRecord,
+} from './src/lib/installations';
 
 const roleOptions = [
   { key: 'administrador', label: 'Administrador', subtitle: 'Acceso completo a la empresa', icon: '👑' },
@@ -163,6 +170,17 @@ export default function App() {
   });
   const [demoNotice, setDemoNotice] = useState('');
   const [selectedCommercialClient, setSelectedCommercialClient] = useState<string | null>(null);
+  const [selectedCommercialClientId, setSelectedCommercialClientId] = useState('');
+  const [installationClients, setInstallationClients] = useState<InstallationClient[]>([]);
+  const [savedInstallations, setSavedInstallations] = useState<InstallationRecord[]>([]);
+  const [showInstallationForm, setShowInstallationForm] = useState(false);
+  const [installationLocationName, setInstallationLocationName] = useState('');
+  const [installationFloor, setInstallationFloor] = useState('');
+  const [installationRoom, setInstallationRoom] = useState('');
+  const [installationProduct, setInstallationProduct] = useState('Ambientador automático');
+  const [installationScent, setInstallationScent] = useState(fragranceSamples[0].name);
+  const [installationFormError, setInstallationFormError] = useState('');
+  const [savingInstallation, setSavingInstallation] = useState(false);
   const [clientRequestDraft, setClientRequestDraft] = useState<{ installation: string; example: string } | null>(null);
   const [clientRequestList, setClientRequestList] = useState(clientRequests);
   const [nextDemoRequestId, setNextDemoRequestId] = useState(3);
@@ -188,6 +206,16 @@ export default function App() {
     if (adminFilter === 'Todas') return true;
     return status.toLowerCase() === adminFilter.toLowerCase();
   });
+
+  const commercialClientCards = isSupabaseConfigured && isAuthenticated
+    ? installationClients.map((client) => ({
+      id: client.id,
+      name: client.name,
+      area: client.company_name || client.city || 'Cliente',
+      installs: savedInstallations.filter((installation) => installation.client_id === client.id).length,
+      nextVisit: '—',
+    }))
+    : commercialClients.map((client) => ({ ...client, id: '' }));
 
   const handleRequestAction = (requestId: string, action: string) => {
     if (action === 'Aprobar') {
@@ -446,6 +474,57 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!AUTH_ENABLED || !isSupabaseConfigured || !isAuthenticated) return;
+    let isMounted = true;
+
+    void Promise.all([loadInstallationClients(), loadInstallations()])
+      .then(([clients, installations]) => {
+        if (!isMounted) return;
+        setInstallationClients(clients);
+        setSavedInstallations(installations);
+      })
+      .catch((error) => {
+        if (isMounted) setDemoNotice(error instanceof Error ? error.message : 'No se pudieron cargar las instalaciones.');
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthenticated, currentRole]);
+
+  const handleSaveInstallation = async () => {
+    if (!selectedCommercialClientId || !installationLocationName.trim()) {
+      setInstallationFormError('Selecciona un cliente e indica la zona de instalación.');
+      return;
+    }
+
+    setSavingInstallation(true);
+    setInstallationFormError('');
+    try {
+      const installation = await createInstallation({
+        clientId: selectedCommercialClientId,
+        locationName: installationLocationName,
+        floorNumber: installationFloor,
+        roomNumber: installationRoom,
+        productName: installationProduct,
+        scent: installationScent,
+      });
+      setSavedInstallations((current) => [installation, ...current]);
+      setSelectedCommercialClient(installationClients.find((client) => client.id === installation.client_id)?.name ?? null);
+      setShowInstallationForm(false);
+      setInstallationLocationName('');
+      setInstallationFloor('');
+      setInstallationRoom('');
+      setInstallationProduct('Ambientador automático');
+      setDemoNotice('Instalación guardada correctamente.');
+    } catch (error) {
+      setInstallationFormError(error instanceof Error ? error.message : 'No se pudo guardar la instalación.');
+    } finally {
+      setSavingInstallation(false);
+    }
+  };
 
   const renderBottomNav = () => (
     <View style={styles.bottomNav}>
@@ -769,7 +848,7 @@ export default function App() {
                 <Text style={styles.sectionTitle}>Clientes activos</Text>
 
                 <View style={styles.requestList}>
-                  {commercialClients.map((client) => (
+                  {commercialClientCards.map((client) => (
                     <View key={client.name} style={styles.detailCard}>
                       <View style={styles.cardHeader}>
                         <Text style={styles.cardClient}>{client.area}</Text>
@@ -781,6 +860,7 @@ export default function App() {
                       <Text style={styles.cardDetail}>{client.installs} instalaciones activas</Text>
                       <Pressable style={styles.fullButton} onPress={() => {
                         setSelectedCommercialClient(client.name);
+                        setSelectedCommercialClientId(client.id);
                         setActiveTab('Instalaciones');
                         setDemoNotice(`Mostrando instalaciones de ${client.name}.`);
                       }}>
@@ -789,37 +869,129 @@ export default function App() {
                     </View>
                   ))}
                 </View>
+                {isSupabaseConfigured && commercialClientCards.length === 0 ? (
+                  <View style={styles.infoCard}>
+                    <Text style={styles.cardDetail}>No hay clientes asignados a esta cuenta comercial.</Text>
+                  </View>
+                ) : null}
               </>
             ) : null}
 
             {currentRole === 'administrador' || activeTab === 'Instalaciones' ? (
               <View style={styles.requestList}>
-                {(selectedCommercialClient
-                  ? [[selectedCommercialClient, commercialInstallationsByClient[selectedCommercialClient] ?? []] as const]
-                  : Object.entries(commercialInstallationsByClient)
-                ).map(([clientName, installations]) => (
-                  <View key={clientName} style={styles.detailCard}>
-                    <View style={styles.cardHeader}>
-                      <Text style={styles.cardClient}>{clientName}</Text>
-                      {selectedCommercialClient ? (
-                        <Pressable onPress={() => setSelectedCommercialClient(null)}>
-                          <Text style={styles.closeLink}>Ver todas</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                    {installations.map((installation) => (
-                      <View key={installation.name} style={styles.miniListRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.miniTitle}>{installation.name}</Text>
-                          <Text style={styles.miniDetail}>{installation.scent}</Text>
+                {commercialClientCards
+                  .filter((client) => !selectedCommercialClient || client.name === selectedCommercialClient)
+                  .map((client) => {
+                    const installations = isSupabaseConfigured && isAuthenticated
+                      ? savedInstallations.filter((installation) => installation.client_id === client.id)
+                      : (commercialInstallationsByClient[client.name] ?? []);
+
+                    return (
+                      <View key={client.name} style={styles.detailCard}>
+                        <View style={styles.cardHeader}>
+                          <Text style={styles.cardClient}>{client.name}</Text>
+                          {selectedCommercialClient ? (
+                            <Pressable onPress={() => {
+                              setSelectedCommercialClient(null);
+                              setSelectedCommercialClientId('');
+                              setShowInstallationForm(false);
+                            }}>
+                              <Text style={styles.closeLink}>Ver todas</Text>
+                            </Pressable>
+                          ) : null}
                         </View>
-                        <View style={styles.smallTag}>
-                          <Text style={styles.smallTagText}>{installation.status}</Text>
-                        </View>
+
+                        {installations.map((installation) => (
+                          <View key={'location_name' in installation ? installation.id : installation.name} style={styles.miniListRow}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.miniTitle}>{'location_name' in installation ? installation.location_name : installation.name}</Text>
+                              <Text style={styles.miniDetail}>
+                                {'location_name' in installation
+                                  ? [`Planta ${installation.floor_number}`, `Habitación ${installation.room_number}`, installation.product_name, installation.scent].filter((value) => value && value !== 'Planta ' && value !== 'Habitación ').join(' • ')
+                                  : installation.scent}
+                              </Text>
+                            </View>
+                            <View style={styles.smallTag}>
+                              <Text style={styles.smallTagText}>{installation.status}</Text>
+                            </View>
+                          </View>
+                        ))}
+
+                        {installations.length === 0 ? <Text style={styles.emptyInstallations}>Sin instalaciones registradas.</Text> : null}
+
+                        {client.id ? (
+                          <Pressable style={[styles.fullButton, styles.addInstallationButton]} onPress={() => {
+                            setSelectedCommercialClient(client.name);
+                            setSelectedCommercialClientId(client.id);
+                            setShowInstallationForm(true);
+                            setInstallationFormError('');
+                          }}>
+                            <Text style={styles.fullButtonText}>+ Añadir ambientador</Text>
+                          </Pressable>
+                        ) : null}
                       </View>
-                    ))}
+                    );
+                  })}
+
+                {showInstallationForm && selectedCommercialClientId ? (
+                  <View style={styles.infoCard}>
+                    <Text style={styles.cardClient}>NUEVA INSTALACIÓN · {selectedCommercialClient}</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={installationLocationName}
+                      onChangeText={setInstallationLocationName}
+                      placeholder="Zona (p. ej. Baño)"
+                      placeholderTextColor={colors.muted}
+                    />
+                    <View style={styles.installationNumberRow}>
+                      <TextInput
+                        style={[styles.formInput, styles.installationNumberInput]}
+                        value={installationFloor}
+                        onChangeText={setInstallationFloor}
+                        placeholder="Planta"
+                        placeholderTextColor={colors.muted}
+                        keyboardType="numeric"
+                      />
+                      <TextInput
+                        style={[styles.formInput, styles.installationNumberInput]}
+                        value={installationRoom}
+                        onChangeText={setInstallationRoom}
+                        placeholder="Habitación"
+                        placeholderTextColor={colors.muted}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <TextInput
+                      style={styles.formInput}
+                      value={installationProduct}
+                      onChangeText={setInstallationProduct}
+                      placeholder="Equipo (p. ej. Ambientador automático)"
+                      placeholderTextColor={colors.muted}
+                    />
+                    <Text style={styles.formLabel}>Aroma</Text>
+                    <View style={styles.scentChoiceRow}>
+                      {fragranceSamples.map((sample) => (
+                        <Pressable
+                          key={sample.name}
+                          style={[styles.scentChoice, installationScent === sample.name && styles.scentChoiceActive]}
+                          onPress={() => setInstallationScent(sample.name)}
+                        >
+                          <View style={[styles.scentChoiceSwatch, { backgroundColor: sample.color }]} />
+                          <Text style={[styles.scentChoiceText, installationScent === sample.name && styles.scentChoiceTextActive]}>{sample.name}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    {installationFormError ? <Text style={styles.loginError}>{installationFormError}</Text> : null}
+                    <View style={styles.buttonRow}>
+                      <Pressable style={styles.secondaryButton} onPress={() => setShowInstallationForm(false)}>
+                        <Text style={styles.secondaryButtonText}>Cancelar</Text>
+                      </Pressable>
+                      <Pressable disabled={savingInstallation} style={[styles.primaryButton, savingInstallation && styles.loginButtonDisabled]} onPress={() => void handleSaveInstallation()}>
+                        <Text style={styles.primaryButtonText}>{savingInstallation ? 'Guardando…' : 'Guardar instalación'}</Text>
+                      </Pressable>
+                    </View>
                   </View>
-                ))}
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -849,7 +1021,15 @@ export default function App() {
 
             {currentRole === 'administrador' || activeTab === 'Instalaciones' ? (
               <View style={styles.requestList}>
-                {clientInstallations.map((installation) => (
+                {(isSupabaseConfigured && isAuthenticated
+                  ? savedInstallations.map((installation) => ({
+                    name: [installation.location_name, installation.room_number ? `Hab. ${installation.room_number}` : ''].filter(Boolean).join(' • '),
+                    type: installation.product_name,
+                    scent: [installation.floor_number ? `Planta ${installation.floor_number}` : '', installation.scent].filter(Boolean).join(' • '),
+                    status: installation.status,
+                  }))
+                  : clientInstallations
+                ).map((installation) => (
                   <View key={installation.name} style={styles.detailCard}>
                     <View style={styles.cardHeader}>
                       <Text style={styles.cardClient}>{installation.type}</Text>
@@ -871,6 +1051,11 @@ export default function App() {
                     </Pressable>
                   </View>
                 ))}
+                {isSupabaseConfigured && isAuthenticated && savedInstallations.length === 0 ? (
+                  <View style={styles.infoCard}>
+                    <Text style={styles.cardDetail}>Todavía no hay instalaciones asignadas a tu cuenta.</Text>
+                  </View>
+                ) : null}
               </View>
             ) : null}
 
@@ -1095,6 +1280,18 @@ const styles = StyleSheet.create({
   scentName: { color: colors.dark, fontSize: 18, fontWeight: '700', marginTop: 3, marginBottom: 5 },
   scentNote: { color: colors.muted, fontSize: 12, lineHeight: 17 },
   scentSampleBar: { height: 4, borderRadius: 2, marginTop: 12, opacity: 0.8 },
+  emptyInstallations: { color: colors.muted, fontSize: 13, paddingVertical: 10 },
+  addInstallationButton: { marginTop: 14 },
+  formInput: { minHeight: 46, color: colors.dark, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, borderRadius: 10, paddingHorizontal: 12, marginTop: 10, fontSize: 14 },
+  installationNumberRow: { flexDirection: 'row', gap: 10 },
+  installationNumberInput: { flex: 1 },
+  formLabel: { color: colors.dark, fontSize: 12, fontWeight: '700', marginTop: 14, marginBottom: 8 },
+  scentChoiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  scentChoice: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
+  scentChoiceActive: { backgroundColor: colors.dark, borderColor: colors.dark },
+  scentChoiceSwatch: { width: 10, height: 10, borderRadius: 5 },
+  scentChoiceText: { color: colors.dark, fontSize: 11, fontWeight: '600' },
+  scentChoiceTextActive: { color: colors.white },
   deleteButton: { marginTop: 12, alignSelf: 'flex-end', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: 'rgba(215, 93, 93, 0.08)', borderWidth: 1, borderColor: colors.red },
   deleteButtonText: { color: colors.red, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
   bottomNav: { position: 'absolute', left: 20, right: 20, bottom: 18, backgroundColor: colors.dark, borderRadius: 22, paddingVertical: 10, paddingHorizontal: 10, flexDirection: 'row', justifyContent: 'space-between', borderWidth: 1, borderColor: colors.dark, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 8 }, elevation: 6 },

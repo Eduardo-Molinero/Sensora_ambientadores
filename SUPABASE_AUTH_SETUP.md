@@ -4,7 +4,7 @@ La aplicación usa el proyecto existente SENSORA-BUSINESS. No crea otro proyecto
 
 ## Activación
 
-1. Revisa y ejecuta `supabase/migrations/20261118_001_sensora_profiles_and_clients.sql` en el SQL Editor del proyecto. La migración solo añade `sensora_profiles` y `sensora_clients`, habilita RLS y no modifica las tablas existentes.
+1. Revisa y ejecuta en orden `supabase/migrations/20261118_001_sensora_profiles_and_clients.sql` y `supabase/migrations/20261123_002_sensora_installations.sql` en el SQL Editor del proyecto. Son migraciones aditivas: crean las tablas de perfiles, clientes e instalaciones con RLS, sin modificar ni eliminar las tablas existentes.
 2. En **Authentication > Users**, crea las cuentas de `TEST_CREDENTIALS.md` con sus contraseñas y confirma los emails si el proyecto lo requiere. No hay registro público desde la app.
 3. En el SQL Editor, ejecuta esto para asignar el rol a cada usuario creado:
 
@@ -36,4 +36,4 @@ Los roles permitidos son `administrador`, `comercial` y `cliente`. El primer adm
 
 ## Alcance actual
 
-El login real comprueba el rol de `sensora_profiles` después de autenticar con Supabase. RLS limita la lectura de `sensora_clients` al administrador, comercial asignado o cliente vinculado. Las pantallas de instalaciones y solicitudes aún muestran los datos demo existentes; conectar esas listas requiere revisar las tablas reales de instalaciones y solicitudes antes de añadir más cambios al esquema.
+El login real comprueba el rol de `sensora_profiles` después de autenticar con Supabase. RLS limita la lectura de clientes e instalaciones al administrador, comercial asignado o cliente vinculado. Las nuevas instalaciones se guardan en `sensora_installations` y son creadas por el comercial asignado.
