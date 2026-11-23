@@ -100,7 +100,13 @@ const commercialInstallationsByClient: Record<string, { name: string; scent: str
 
 type Screen = 'landing' | 'administrador' | 'adminSolicitudes' | 'comercial' | 'cliente';
 type UserRole = 'administrador' | 'comercial' | 'cliente';
-const AUTH_ENABLED = false;
+const AUTH_ENABLED = true;
+
+const roleLoginAccounts: Record<UserRole, { username: string; email: string }> = {
+  administrador: { username: 'administrador', email: 'admin.pruebas@sensora.test' },
+  comercial: { username: 'comercial', email: 'comercial.pruebas@sensora.test' },
+  cliente: { username: 'cliente', email: 'cliente.pruebas@sensora.com' },
+};
 
 const getScreenFromLocation = (): Screen => {
   if (typeof window === 'undefined') return 'landing';
@@ -135,7 +141,7 @@ export default function App() {
   });
   const [loginRole, setLoginRole] = useState<UserRole>('administrador');
   const [showLogin, setShowLogin] = useState(false);
-  const [loginEmail, setLoginEmail] = useState('');
+  const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -308,15 +314,20 @@ export default function App() {
   };
 
   const handleLogin = async () => {
-    if (!loginEmail.trim() || !loginPassword) {
-      setLoginError('Escribe tu correo y contraseña.');
+    const account = roleLoginAccounts[loginRole];
+    if (!loginUsername.trim() || !loginPassword) {
+      setLoginError('Escribe tu usuario y contraseña.');
+      return;
+    }
+    if (loginUsername.trim().toLowerCase() !== account.username) {
+      setLoginError('El usuario no corresponde al perfil seleccionado.');
       return;
     }
 
     setIsLoggingIn(true);
     setLoginError('');
     try {
-      const role = await signInForRole(loginEmail.trim(), loginPassword, loginRole);
+      const role = await signInForRole(account.email, loginPassword, loginRole);
       setIsAuthenticated(true);
       setCurrentRole(role);
       setActiveTab(role === 'administrador' ? 'Panel' : role === 'comercial' ? 'Clientes' : 'Instalaciones');
@@ -441,7 +452,7 @@ export default function App() {
           onPress={() => {
             setLoginRole(role.key);
             setShowMoreMenu(false);
-            setLoginEmail('');
+            setLoginUsername('');
             setLoginPassword('');
             setLoginError('');
             if (AUTH_ENABLED) {
@@ -484,14 +495,13 @@ export default function App() {
 
           <TextInput
             style={styles.loginInput}
-            value={loginEmail}
-            onChangeText={setLoginEmail}
-            placeholder="Correo electrónico"
+            value={loginUsername}
+            onChangeText={setLoginUsername}
+            placeholder="Usuario"
             placeholderTextColor={colors.muted}
-            keyboardType="email-address"
             autoCapitalize="none"
-            autoComplete="email"
-            textContentType="emailAddress"
+            autoComplete="username"
+            textContentType="username"
           />
           <TextInput
             style={styles.loginInput}
