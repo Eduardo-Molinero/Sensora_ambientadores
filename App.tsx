@@ -315,11 +315,12 @@ export default function App() {
 
   const handleLogin = async () => {
     const account = roleLoginAccounts[loginRole];
+    const enteredUsername = loginUsername.trim().toLowerCase();
     if (!loginUsername.trim() || !loginPassword) {
       setLoginError('Escribe tu usuario y contraseña.');
       return;
     }
-    if (loginUsername.trim().toLowerCase() !== account.username) {
+    if (enteredUsername !== account.username && enteredUsername !== account.email.toLowerCase()) {
       setLoginError('El usuario no corresponde al perfil seleccionado.');
       return;
     }
