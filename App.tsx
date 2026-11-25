@@ -14,6 +14,15 @@ import {
 import { restoreUserRole, signInForRole, signOutUser } from './src/lib/auth';
 import { isSupabaseConfigured, supabase } from './src/lib/supabase';
 import {
+  loadFragranceOrders,
+  loadFragranceStock,
+  markFragranceOrdersRead,
+  orderFragrance,
+  updateFragranceStock,
+  type FragranceOrder,
+  type FragranceStock,
+} from './src/lib/fragrances';
+import {
   createInstallation,
   loadInstallationClients,
   loadInstallations,
@@ -187,6 +196,14 @@ export default function App() {
   const [clientRequestList, setClientRequestList] = useState(clientRequests);
   const [nextDemoRequestId, setNextDemoRequestId] = useState(3);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [fragranceStock, setFragranceStock] = useState<FragranceStock[]>([]);
+  const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({});
+  const [fragranceMessage, setFragranceMessage] = useState('');
+  const [savingFragrance, setSavingFragrance] = useState('');
+  const [fragranceOrders, setFragranceOrders] = useState<FragranceOrder[]>([]);
+  const [notificationError, setNotificationError] = useState('');
+  const [showNotifications, setShowNotifications] = useState(false);
+  const unreadOrders = fragranceOrders.filter((order) => !order.read_at).length;
   const isMobile = width < 900;
   const bottomNavItems = currentRole === 'administrador'
     ? [
@@ -197,8 +214,8 @@ export default function App() {
       { label: 'Más', icon: '☰' },
     ]
     : currentRole === 'comercial'
-      ? [{ label: 'Inicio', icon: '🏠' }, { label: 'Clientes', icon: '👥' }, { label: 'Instalaciones', icon: '📍' }]
-      : [{ label: 'Inicio', icon: '🏠' }, { label: 'Instalaciones', icon: '📍' }, { label: 'Solicitudes', icon: '📨' }, { label: 'Aromas', icon: '🌿' }];
+      ? [{ label: 'Clientes', icon: '👥' }, { label: 'Instalaciones', icon: '📍' }, { label: 'Salir', icon: '🚪' }]
+      : [{ label: 'Instalaciones', icon: '📍' }, { label: 'Solicitudes', icon: '📨' }, { label: 'Aromas', icon: '🌿' }, { label: 'Salir', icon: '🚪' }];
   const roleLabel = currentRole.toUpperCase();
 
   const filters = ['Todas', 'Pendiente', 'Aprobada', 'Rechazada', 'Completada'];
@@ -330,8 +347,8 @@ export default function App() {
   };
 
   const handleBottomNavPress = (item: string) => {
-    if (item === 'Inicio' && currentRole !== 'administrador') {
-      contentScrollRef.current?.scrollTo({ y: 0, animated: true });
+    if (item === 'Salir' && currentRole !== 'administrador') {
+      void handleLogout();
       return;
     }
 
@@ -405,6 +422,10 @@ export default function App() {
 
   const handleLogout = async () => {
     setShowMoreMenu(false);
+    setShowNotifications(false);
+    setFragranceOrders([]);
+    setFragranceStock([]);
+    setFragranceMessage('');
     setShowLogin(false);
     setLoginPassword('');
     setIsAuthenticated(false);
@@ -500,6 +521,94 @@ export default function App() {
       isMounted = false;
     };
   }, [isAuthenticated, currentRole]);
+
+  useEffect(() => {
+    if (screen !== 'catalogo' || !isAuthenticated) return;
+    let active = true;
+    setFragranceMessage('');
+    void loadFragranceStock().then((stock) => {
+      if (!active) return;
+      setFragranceStock(stock);
+      setStockDrafts(Object.fromEntries(stock.map((item) => [item.name, String(item.quantity)])));
+    }).catch((error) => {
+      if (active) setFragranceMessage(error instanceof Error ? error.message : 'No se pudo consultar el stock.');
+    });
+    return () => { active = false; };
+  }, [screen, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || currentRole !== 'comercial') return;
+    let active = true;
+    const refresh = () => {
+      void loadFragranceOrders().then((orders) => {
+        if (active) {
+          setFragranceOrders(orders);
+          setNotificationError('');
+        }
+      }).catch(() => {
+        if (active) setNotificationError('No se pudieron cargar las notificaciones.');
+      });
+    };
+    refresh();
+    const interval = setInterval(refresh, 15000);
+    return () => { active = false; clearInterval(interval); };
+  }, [isAuthenticated, currentRole]);
+
+  const handleFragranceOrder = async (name: string) => {
+    if (savingFragrance) return;
+    setSavingFragrance(name);
+    setFragranceMessage('');
+    try {
+      await orderFragrance(name);
+      setFragranceMessage(`Pedido de ${name} enviado a tu comercial.`);
+      try {
+        setFragranceStock(await loadFragranceStock());
+      } catch {
+        setFragranceStock([]);
+        setFragranceMessage(`Pedido de ${name} enviado. No se pudo actualizar el stock mostrado.`);
+      }
+    } catch (error) {
+      setFragranceMessage(error instanceof Error ? error.message : 'No se pudo realizar el pedido.');
+    } finally {
+      setSavingFragrance('');
+    }
+  };
+
+  const handleStockSave = async (name: string) => {
+    const draft = stockDrafts[name]?.trim() ?? '';
+    const quantity = Number(draft);
+    if (!/^\d+$/.test(draft) || !Number.isSafeInteger(quantity) || quantity > 2147483647) {
+      setFragranceMessage('Introduce una cantidad entera válida.');
+      return;
+    }
+    setSavingFragrance(name);
+    setFragranceMessage('');
+    try {
+      await updateFragranceStock(name, quantity);
+      setFragranceStock(await loadFragranceStock());
+      setFragranceMessage(`Stock de ${name} actualizado.`);
+    } catch (error) {
+      setFragranceMessage(error instanceof Error ? error.message : 'No se pudo actualizar el stock.');
+    } finally {
+      setSavingFragrance('');
+    }
+  };
+
+  const openNotifications = async () => {
+    setShowNotifications(true);
+    try {
+      const orders = await loadFragranceOrders();
+      setFragranceOrders(orders);
+      setNotificationError('');
+      const unreadIds = orders.filter((order) => !order.read_at).map((order) => order.id);
+      if (unreadIds.length) {
+        await markFragranceOrdersRead(unreadIds);
+        setFragranceOrders(await loadFragranceOrders());
+      }
+    } catch {
+      setNotificationError('No se pudieron actualizar las notificaciones.');
+    }
+  };
 
   const handleSaveInstallation = async () => {
     if (!selectedCommercialClientId || !installationLocationName.trim()) {
@@ -797,6 +906,7 @@ export default function App() {
             <Text style={styles.dateText}>COLECCIÓN OLFATIVA</Text>
             <Text style={styles.mainTitle}>Catálogo de aromas</Text>
             <Text style={styles.catalogIntro}>Muestras disponibles para ambientar cada espacio.</Text>
+            {fragranceMessage ? <View style={styles.noticeBanner}><Text style={styles.noticeText}>{fragranceMessage}</Text></View> : null}
 
             <View style={styles.scentGrid}>
               {fragranceSamples.map((sample) => (
@@ -810,6 +920,27 @@ export default function App() {
                     <Text style={styles.scentNote}>{sample.note}</Text>
                   </View>
                   <View style={[styles.scentSampleBar, { backgroundColor: sample.color }]} />
+                  {isAuthenticated ? (
+                    <>
+                      <Text style={styles.stockLabel}>
+                        {fragranceStock.find((item) => item.name === sample.name)
+                          ? `Stock: ${fragranceStock.find((item) => item.name === sample.name)?.quantity}`
+                          : 'Stock no disponible'}
+                      </Text>
+                      {currentRole === 'cliente' ? (
+                        <Pressable accessibilityRole="button" disabled={!!savingFragrance} style={[styles.fragranceButton, !!savingFragrance && styles.loginButtonDisabled]} onPress={() => void handleFragranceOrder(sample.name)}>
+                          <Text style={styles.fragranceButtonText}>{savingFragrance === sample.name ? 'Enviando…' : 'Pedir aroma'}</Text>
+                        </Pressable>
+                      ) : currentRole === 'administrador' ? (
+                        <View style={styles.stockControls}>
+                          <TextInput accessibilityLabel={`Stock de ${sample.name}`} style={styles.stockInput} keyboardType="number-pad" value={stockDrafts[sample.name] ?? ''} onChangeText={(value) => setStockDrafts((drafts) => ({ ...drafts, [sample.name]: value }))} />
+                          <Pressable accessibilityRole="button" accessibilityLabel={`Guardar stock de ${sample.name}`} disabled={!!savingFragrance} style={[styles.stockSave, !!savingFragrance && styles.loginButtonDisabled]} onPress={() => void handleStockSave(sample.name)}>
+                            <Text style={styles.fragranceButtonText}>Guardar</Text>
+                          </Pressable>
+                        </View>
+                      ) : null}
+                    </>
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -827,9 +958,17 @@ export default function App() {
           <View style={[styles.layoutPanel, isMobile ? styles.layoutPanelMobile : styles.layoutPanelDesktop]}>
             <View style={styles.topHeader}>
               <Text style={styles.brandSmall}>SENSORA</Text>
-              <Pressable style={styles.roleBadge} onPress={() => void handleLogout()}>
-                <Text style={styles.roleBadgeText}>{roleLabel}</Text>
-              </Pressable>
+              <View style={styles.headerActions}>
+                <Pressable style={styles.roleBadge} onPress={() => void handleLogout()}>
+                  <Text style={styles.roleBadgeText}>{roleLabel}</Text>
+                </Pressable>
+                {currentRole === 'comercial' ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Notificaciones${unreadOrders ? `, ${unreadOrders} sin leer` : ''}`} style={styles.notificationButton} onPress={() => showNotifications ? setShowNotifications(false) : void openNotifications()}>
+                    <Text style={styles.notificationBell}>🔔</Text>
+                    {unreadOrders > 0 ? <View style={styles.notificationBadge}><Text style={styles.notificationBadgeText}>{unreadOrders > 99 ? '99+' : unreadOrders}</Text></View> : null}
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
 
             <Text style={styles.dateText}>CLIENTES E INSTALACIONES</Text>
@@ -1005,6 +1144,27 @@ export default function App() {
         </ScrollView>
 
         {renderBottomNav()}
+        {currentRole === 'comercial' && showNotifications ? (
+          <View style={[styles.notificationPanel, { right: Math.max(20, (width - 1100) / 2 + 24) }]}>
+            <View style={styles.notificationHeader}>
+              <Text style={styles.notificationTitle}>Notificaciones</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Cerrar notificaciones" onPress={() => setShowNotifications(false)} style={styles.notificationClose}>
+                <Text style={styles.notificationCloseText}>×</Text>
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.notificationList}>
+              {notificationError ? <Text style={styles.notificationEmpty}>{notificationError}</Text> : null}
+              {!notificationError && fragranceOrders.length === 0 ? <Text style={styles.notificationEmpty}>No hay pedidos de aromas.</Text> : null}
+              {fragranceOrders.map((order) => (
+                <View key={order.id} style={styles.notificationRow}>
+                  <Text style={styles.notificationOrder}>Pedido de {order.fragrance_name}</Text>
+                  <Text style={styles.notificationClient}>{order.sensora_clients?.company_name || order.sensora_clients?.name || 'Cliente'}</Text>
+                  <Text style={styles.notificationDate}>{new Date(order.created_at).toLocaleString('es-ES')}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -1287,6 +1447,28 @@ const styles = StyleSheet.create({
   scentName: { color: colors.dark, fontSize: 18, fontWeight: '700', marginTop: 3, marginBottom: 5 },
   scentNote: { color: colors.muted, fontSize: 12, lineHeight: 17 },
   scentSampleBar: { height: 4, borderRadius: 2, marginTop: 12, opacity: 0.8 },
+  stockLabel: { color: colors.muted, fontSize: 12, marginTop: 10, marginBottom: 8 },
+  fragranceButton: { backgroundColor: colors.gold, borderRadius: 8, minHeight: 40, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  fragranceButtonText: { color: colors.dark, fontSize: 12, fontWeight: '700' },
+  stockControls: { flexDirection: 'row', gap: 6 },
+  stockInput: { flex: 1, minWidth: 0, minHeight: 40, backgroundColor: colors.white, color: colors.dark, borderColor: colors.line, borderWidth: 1, borderRadius: 8, paddingHorizontal: 8 },
+  stockSave: { backgroundColor: colors.gold, borderRadius: 8, minHeight: 40, justifyContent: 'center', paddingHorizontal: 9 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  notificationButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.dark, borderWidth: 1, borderColor: colors.gold },
+  notificationBell: { fontSize: 19 },
+  notificationBadge: { position: 'absolute', top: -4, right: -4, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: colors.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  notificationBadgeText: { color: colors.white, fontSize: 10, fontWeight: '700' },
+  notificationPanel: { position: 'absolute', top: 78, right: 20, width: '90%', maxWidth: 360, height: '60%', maxHeight: 500, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.gold, borderRadius: 8, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 10 },
+  notificationHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 16, paddingRight: 8, paddingVertical: 8, borderBottomWidth: 1, borderColor: colors.line },
+  notificationTitle: { color: colors.dark, fontFamily: 'Georgia', fontWeight: '700', fontSize: 20 },
+  notificationClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  notificationCloseText: { color: colors.dark, fontSize: 26 },
+  notificationList: { paddingHorizontal: 16, paddingBottom: 16 },
+  notificationEmpty: { color: colors.muted, fontSize: 13, paddingVertical: 16 },
+  notificationRow: { paddingVertical: 14, borderBottomWidth: 1, borderColor: colors.line },
+  notificationOrder: { color: colors.dark, fontSize: 14, fontWeight: '700' },
+  notificationClient: { color: colors.dark, fontSize: 13, marginTop: 4 },
+  notificationDate: { color: colors.muted, fontSize: 11, marginTop: 4 },
   emptyInstallations: { color: colors.muted, fontSize: 13, paddingVertical: 10 },
   addInstallationButton: { marginTop: 14 },
   formInput: { minHeight: 46, color: colors.dark, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, borderRadius: 10, paddingHorizontal: 12, marginTop: 10, fontSize: 14 },

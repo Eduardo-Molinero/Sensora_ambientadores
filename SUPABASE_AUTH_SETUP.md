@@ -37,3 +37,9 @@ Los roles permitidos son `administrador`, `comercial` y `cliente`. El primer adm
 ## Alcance actual
 
 El login real comprueba el rol de `sensora_profiles` después de autenticar con Supabase. RLS limita la lectura de clientes e instalaciones al administrador, comercial asignado o cliente vinculado. Las nuevas instalaciones se guardan en `sensora_installations` y son creadas por el comercial asignado.
+
+## Pedidos de aromas
+
+Ejecuta `supabase/migrations/20261125_003_fragrance_orders.sql` en el SQL Editor del proyecto, después de las migraciones anteriores. El stock inicial es cero para evitar mostrar existencias inventadas. El administrador debe registrar las unidades reales desde **Menú > Catálogo** para habilitar pedidos.
+
+Cada pedido reserva una unidad y genera una notificación para el comercial asignado al cliente. Sin stock o sin comercial asignado, el pedido no se crea. Las notificaciones se actualizan en el panel comercial mientras la aplicación está abierta; no son notificaciones push del dispositivo.
