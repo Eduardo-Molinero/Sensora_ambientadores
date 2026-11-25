@@ -13,6 +13,7 @@ import {
   type ScrollViewInstance,
 } from 'react-native';
 import { restoreUserRole, signInForRole, signOutUser } from './src/lib/auth';
+import ClientAccountsSettings from './src/components/ClientAccountsSettings';
 import { isSupabaseConfigured, supabase } from './src/lib/supabase';
 import {
   loadFragranceOrders,
@@ -126,7 +127,7 @@ const fragranceSamples = [
   { name: 'Chupa Chups', family: 'Caramelo', icon: '🍭', note: 'Dulce, alegre y afrutado.', color: '#d76c78' },
 ];
 
-type Screen = 'landing' | 'administrador' | 'adminSolicitudes' | 'catalogo' | 'comercial' | 'cliente' | 'pedidoAroma';
+type Screen = 'landing' | 'administrador' | 'adminSolicitudes' | 'configuracion' | 'catalogo' | 'comercial' | 'cliente' | 'pedidoAroma';
 type UserRole = 'administrador' | 'comercial' | 'cliente';
 const AUTH_ENABLED = true;
 
@@ -146,7 +147,7 @@ const getScreenFromLocation = (): Screen => {
 
   if (getFragranceOrderIdFromLocation()) return 'pedidoAroma';
   const rawHash = window.location.hash.replace('#', '').trim();
-  if (rawHash === 'administrador' || rawHash === 'adminSolicitudes' || rawHash === 'catalogo' || rawHash === 'comercial' || rawHash === 'cliente') {
+  if (rawHash === 'administrador' || rawHash === 'adminSolicitudes' || rawHash === 'configuracion' || rawHash === 'catalogo' || rawHash === 'comercial' || rawHash === 'cliente') {
     return rawHash;
   }
 
@@ -320,7 +321,12 @@ export default function App() {
       return;
     }
 
-    if (key === 'productos' || key === 'informes' || key === 'configuracion') {
+    if (key === 'configuracion') {
+      navigateToScreen('configuracion');
+      return;
+    }
+
+    if (key === 'productos' || key === 'informes') {
       setDemoNotice(`Sección de demo: ${key}.`);
       navigateToScreen('administrador');
       return;
@@ -407,15 +413,16 @@ export default function App() {
       setLoginError('Escribe tu usuario y contraseña.');
       return;
     }
-    if (enteredUsername !== account.username && enteredUsername !== account.email.toLowerCase()) {
-      setLoginError('El usuario no corresponde al perfil seleccionado.');
+    const email = enteredUsername === account.username ? account.email : enteredUsername;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setLoginError('Escribe un correo electrónico válido.');
       return;
     }
 
     setIsLoggingIn(true);
     setLoginError('');
     try {
-      const role = await signInForRole(account.email, loginPassword, loginRole);
+      const role = await signInForRole(email, loginPassword, loginRole);
       setIsAuthenticated(true);
       setCurrentRole(role);
       setActiveTab(role === 'administrador' ? 'Panel' : role === 'comercial' ? 'Clientes' : 'Instalaciones');
@@ -767,7 +774,7 @@ export default function App() {
             style={styles.loginInput}
             value={loginUsername}
             onChangeText={setLoginUsername}
-            placeholder="Usuario"
+            placeholder="Correo o usuario"
             placeholderTextColor={colors.muted}
             autoCapitalize="none"
             autoComplete="username"
@@ -1411,6 +1418,7 @@ export default function App() {
       {screen === 'landing' && (showLogin ? renderLogin() : renderLanding())}
       {screen === 'administrador' && renderAdminDashboard()}
       {screen === 'adminSolicitudes' && renderAdminSolicitudes()}
+      {screen === 'configuracion' && currentRole === 'administrador' && isAuthenticated && <ClientAccountsSettings onBack={() => navigateToScreen('administrador')} />}
       {screen === 'catalogo' && (currentRole === 'administrador' || currentRole === 'cliente') && renderCatalog()}
       {screen === 'comercial' && (selectedFragranceOrder ? renderFragranceOrderDetail(selectedFragranceOrder) : renderCommercial())}
       {screen === 'pedidoAroma' && currentRole === 'comercial' && (selectedFragranceOrder ? renderFragranceOrderDetail(selectedFragranceOrder) : (
