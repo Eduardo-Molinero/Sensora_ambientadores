@@ -40,6 +40,6 @@ El login real comprueba el rol de `sensora_profiles` después de autenticar con 
 
 ## Pedidos de aromas
 
-Ejecuta `supabase/migrations/20261125_003_fragrance_orders.sql` en el SQL Editor del proyecto, después de las migraciones anteriores. El stock inicial es cero para evitar mostrar existencias inventadas. El administrador debe registrar las unidades reales desde **Menú > Catálogo** para habilitar pedidos.
+Ejecuta `supabase/migrations/20261125_003_fragrance_orders.sql` y `supabase/migrations/20261125_004_fragrance_order_installations.sql` en el SQL Editor del proyecto, después de las migraciones anteriores. El stock inicial es cero para evitar mostrar existencias inventadas. El administrador debe registrar las unidades reales desde **Menú > Catálogo** para habilitar pedidos.
 
-Cada pedido reserva una unidad y genera una notificación para el comercial asignado al cliente. Sin stock o sin comercial asignado, el pedido no se crea. Las notificaciones se actualizan en el panel comercial mientras la aplicación está abierta; no son notificaciones push del dispositivo.
+Cada pedido requiere una instalación del cliente, reserva una unidad y genera una notificación para el comercial asignado. Sin una instalación válida, stock o comercial asignado, el pedido no se crea. Los pedidos antiguos siguen disponibles sin instalación registrada. Las notificaciones se actualizan en el panel comercial mientras la aplicación está abierta; no son notificaciones push del dispositivo.

@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -15,6 +16,7 @@ import { restoreUserRole, signInForRole, signOutUser } from './src/lib/auth';
 import { isSupabaseConfigured, supabase } from './src/lib/supabase';
 import {
   loadFragranceOrders,
+  loadFragranceOrder,
   loadFragranceStock,
   markFragranceOrdersRead,
   orderFragrance,
@@ -124,7 +126,7 @@ const fragranceSamples = [
   { name: 'Chupa Chups', family: 'Caramelo', icon: '🍭', note: 'Dulce, alegre y afrutado.', color: '#d76c78' },
 ];
 
-type Screen = 'landing' | 'administrador' | 'adminSolicitudes' | 'catalogo' | 'comercial' | 'cliente';
+type Screen = 'landing' | 'administrador' | 'adminSolicitudes' | 'catalogo' | 'comercial' | 'cliente' | 'pedidoAroma';
 type UserRole = 'administrador' | 'comercial' | 'cliente';
 const AUTH_ENABLED = true;
 
@@ -134,9 +136,15 @@ const roleLoginAccounts: Record<UserRole, { username: string; email: string }> =
   cliente: { username: 'cliente', email: 'cliente.pruebas@sensora.com' },
 };
 
+const getFragranceOrderIdFromLocation = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return /^#pedidoAroma\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(window.location.hash)?.[1] ?? null;
+};
+
 const getScreenFromLocation = (): Screen => {
   if (typeof window === 'undefined') return 'landing';
 
+  if (getFragranceOrderIdFromLocation()) return 'pedidoAroma';
   const rawHash = window.location.hash.replace('#', '').trim();
   if (rawHash === 'administrador' || rawHash === 'adminSolicitudes' || rawHash === 'catalogo' || rawHash === 'comercial' || rawHash === 'cliente') {
     return rawHash;
@@ -146,7 +154,7 @@ const getScreenFromLocation = (): Screen => {
 };
 
 const getRoleFromScreen = (screen: Screen): UserRole => {
-  if (screen === 'comercial') return 'comercial';
+  if (screen === 'comercial' || screen === 'pedidoAroma') return 'comercial';
   if (screen === 'cliente') return 'cliente';
   return 'administrador';
 };
@@ -203,6 +211,16 @@ export default function App() {
   const [fragranceOrders, setFragranceOrders] = useState<FragranceOrder[]>([]);
   const [notificationError, setNotificationError] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+  const [selectedFragranceOrder, setSelectedFragranceOrder] = useState<FragranceOrder | null>(null);
+  const [detailOrderId, setDetailOrderId] = useState<string | null>(getFragranceOrderIdFromLocation);
+  const [orderDetailError, setOrderDetailError] = useState('');
+  const [requestedFragrance, setRequestedFragrance] = useState<string | null>(null);
+  const [orderInstallations, setOrderInstallations] = useState<InstallationRecord[]>([]);
+  const [selectedOrderInstallation, setSelectedOrderInstallation] = useState('');
+  const [loadingOrderInstallations, setLoadingOrderInstallations] = useState(false);
+  const [orderInstallationError, setOrderInstallationError] = useState('');
+  const orderInstallationRequest = useRef(0);
+  const fragranceOrderBusy = useRef(false);
   const unreadOrders = fragranceOrders.filter((order) => !order.read_at).length;
   const isMobile = width < 900;
   const bottomNavItems = currentRole === 'administrador'
@@ -328,15 +346,16 @@ export default function App() {
     const activeRole = roleOverride ?? currentRole;
     const canOpenProtectedScreen = !AUTH_ENABLED || !isSupabaseConfigured || isAuthenticated || authenticatedOverride;
     const canClientOpenCatalog = activeRole === 'cliente' && nextScreen === 'catalogo';
+    const canCommercialOpenOrder = activeRole === 'comercial' && nextScreen === 'pedidoAroma' && !!getFragranceOrderIdFromLocation();
     const destination = nextScreen === 'landing' || canOpenProtectedScreen
-      ? activeRole === 'administrador' || canClientOpenCatalog || nextScreen === 'landing' ? nextScreen : getScreenForRole(activeRole)
+      ? (activeRole === 'administrador' && nextScreen !== 'pedidoAroma') || canClientOpenCatalog || canCommercialOpenOrder || nextScreen === 'landing' ? nextScreen : getScreenForRole(activeRole)
       : 'landing';
     setScreen(destination);
 
     if (typeof window === 'undefined') return;
 
     const url = new URL(window.location.href);
-    url.hash = destination === 'landing' ? '' : destination;
+    url.hash = destination === 'landing' ? '' : destination === 'pedidoAroma' ? `pedidoAroma/${getFragranceOrderIdFromLocation()}` : destination;
 
     if (url.hash !== window.location.hash) {
       window.history.pushState({ screen: destination }, '', url);
@@ -347,6 +366,7 @@ export default function App() {
   };
 
   const handleBottomNavPress = (item: string) => {
+    setSelectedFragranceOrder(null);
     if (item === 'Salir' && currentRole !== 'administrador') {
       void handleLogout();
       return;
@@ -405,7 +425,7 @@ export default function App() {
       setActiveTab(role === 'administrador' ? 'Panel' : role === 'comercial' ? 'Clientes' : 'Instalaciones');
       setShowLogin(false);
       setLoginPassword('');
-      navigateToScreen(getScreenForRole(role), role, true);
+      navigateToScreen(role === 'comercial' && getScreenFromLocation() === 'pedidoAroma' ? 'pedidoAroma' : getScreenForRole(role), role, true);
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : 'No se pudo iniciar sesión.');
     } finally {
@@ -423,6 +443,9 @@ export default function App() {
   const handleLogout = async () => {
     setShowMoreMenu(false);
     setShowNotifications(false);
+    setSelectedFragranceOrder(null);
+    setRequestedFragrance(null);
+    orderInstallationRequest.current += 1;
     setFragranceOrders([]);
     setFragranceStock([]);
     setFragranceMessage('');
@@ -445,9 +468,11 @@ export default function App() {
       const requestedScreen = getScreenFromLocation();
       const canOpenProtectedScreen = !AUTH_ENABLED || !isSupabaseConfigured || isAuthenticated;
       const canClientOpenCatalog = currentRole === 'cliente' && requestedScreen === 'catalogo';
+      const canCommercialOpenOrder = currentRole === 'comercial' && requestedScreen === 'pedidoAroma';
       const destination = requestedScreen === 'landing' || canOpenProtectedScreen
-        ? currentRole === 'administrador' || canClientOpenCatalog || requestedScreen === 'landing' ? requestedScreen : getScreenForRole(currentRole)
+        ? (currentRole === 'administrador' && requestedScreen !== 'pedidoAroma') || canClientOpenCatalog || canCommercialOpenOrder || requestedScreen === 'landing' ? requestedScreen : getScreenForRole(currentRole)
         : 'landing';
+      setDetailOrderId(getFragranceOrderIdFromLocation());
       setScreen(destination);
 
       if (destination !== requestedScreen) {
@@ -476,7 +501,7 @@ export default function App() {
         setIsAuthenticated(true);
         setCurrentRole(role);
         setActiveTab(role === 'administrador' ? 'Panel' : role === 'comercial' ? 'Clientes' : 'Instalaciones');
-        navigateToScreen(getScreenForRole(role), role, true);
+        navigateToScreen(role === 'comercial' && getScreenFromLocation() === 'pedidoAroma' ? 'pedidoAroma' : getScreenForRole(role), role, true);
       })
       .catch(() => {
         if (isMounted) setLoginError('No se pudo restaurar la sesión. Inicia sesión de nuevo.');
@@ -523,6 +548,21 @@ export default function App() {
   }, [isAuthenticated, currentRole]);
 
   useEffect(() => {
+    if (screen !== 'pedidoAroma' || currentRole !== 'comercial' || !isAuthenticated || !detailOrderId) return;
+    let active = true;
+    setSelectedFragranceOrder(null);
+    setOrderDetailError('');
+    void loadFragranceOrder(detailOrderId).then((order) => {
+      if (!active) return;
+      if (order) setSelectedFragranceOrder(order);
+      else setOrderDetailError('El pedido no existe o no está asignado a tu cuenta.');
+    }).catch(() => {
+      if (active) setOrderDetailError('No se pudo cargar el pedido.');
+    });
+    return () => { active = false; };
+  }, [screen, currentRole, isAuthenticated, detailOrderId]);
+
+  useEffect(() => {
     if (screen !== 'catalogo' || !isAuthenticated) return;
     let active = true;
     setFragranceMessage('');
@@ -554,12 +594,38 @@ export default function App() {
     return () => { active = false; clearInterval(interval); };
   }, [isAuthenticated, currentRole]);
 
+  const openFragranceOrder = async (name: string) => {
+    const request = ++orderInstallationRequest.current;
+    setRequestedFragrance(name);
+    setSelectedOrderInstallation('');
+    setOrderInstallations([]);
+    setOrderInstallationError('');
+    setFragranceMessage('');
+    setLoadingOrderInstallations(true);
+    try {
+      const installations = await loadInstallations();
+      if (request === orderInstallationRequest.current) setOrderInstallations(installations);
+    } catch {
+      if (request === orderInstallationRequest.current) setOrderInstallationError('No se pudieron cargar tus instalaciones.');
+    } finally {
+      if (request === orderInstallationRequest.current) setLoadingOrderInstallations(false);
+    }
+  };
+
+  const closeFragranceOrder = () => {
+    orderInstallationRequest.current += 1;
+    setRequestedFragrance(null);
+    setFragranceMessage('');
+  };
+
   const handleFragranceOrder = async (name: string) => {
-    if (savingFragrance) return;
+    if (fragranceOrderBusy.current || !selectedOrderInstallation) return;
+    fragranceOrderBusy.current = true;
     setSavingFragrance(name);
     setFragranceMessage('');
     try {
-      await orderFragrance(name);
+      await orderFragrance(name, selectedOrderInstallation);
+      setRequestedFragrance(null);
       setFragranceMessage(`Pedido de ${name} enviado a tu comercial.`);
       try {
         setFragranceStock(await loadFragranceStock());
@@ -570,6 +636,7 @@ export default function App() {
     } catch (error) {
       setFragranceMessage(error instanceof Error ? error.message : 'No se pudo realizar el pedido.');
     } finally {
+      fragranceOrderBusy.current = false;
       setSavingFragrance('');
     }
   };
@@ -608,6 +675,11 @@ export default function App() {
     } catch {
       setNotificationError('No se pudieron actualizar las notificaciones.');
     }
+  };
+
+  const openFragranceOrderDetail = (order: FragranceOrder) => {
+    setSelectedFragranceOrder(order);
+    setShowNotifications(false);
   };
 
   const handleSaveInstallation = async () => {
@@ -928,8 +1000,8 @@ export default function App() {
                           : 'Stock no disponible'}
                       </Text>
                       {currentRole === 'cliente' ? (
-                        <Pressable accessibilityRole="button" disabled={!!savingFragrance} style={[styles.fragranceButton, !!savingFragrance && styles.loginButtonDisabled]} onPress={() => void handleFragranceOrder(sample.name)}>
-                          <Text style={styles.fragranceButtonText}>{savingFragrance === sample.name ? 'Enviando…' : 'Pedir aroma'}</Text>
+                        <Pressable accessibilityRole="button" disabled={!!savingFragrance} style={[styles.fragranceButton, !!savingFragrance && styles.loginButtonDisabled]} onPress={() => void openFragranceOrder(sample.name)}>
+                          <Text style={styles.fragranceButtonText}>Pedir aroma</Text>
                         </Pressable>
                       ) : currentRole === 'administrador' ? (
                         <View style={styles.stockControls}>
@@ -1156,11 +1228,11 @@ export default function App() {
               {notificationError ? <Text style={styles.notificationEmpty}>{notificationError}</Text> : null}
               {!notificationError && fragranceOrders.length === 0 ? <Text style={styles.notificationEmpty}>No hay pedidos de aromas.</Text> : null}
               {fragranceOrders.map((order) => (
-                <View key={order.id} style={styles.notificationRow}>
+                <Pressable key={order.id} accessibilityRole={Platform.OS === 'web' ? 'link' : 'button'} accessibilityLabel={`Ver pedido de ${order.fragrance_name} de ${order.sensora_clients?.name || 'cliente'}`} style={styles.notificationRow} {...(Platform.OS === 'web' ? { href: `#pedidoAroma/${order.id}`, hrefAttrs: { target: '_blank', rel: 'noopener noreferrer' } } : {})} onPress={Platform.OS === 'web' ? undefined : () => openFragranceOrderDetail(order)}>
                   <Text style={styles.notificationOrder}>Pedido de {order.fragrance_name}</Text>
-                  <Text style={styles.notificationClient}>{order.sensora_clients?.company_name || order.sensora_clients?.name || 'Cliente'}</Text>
+                  <Text style={styles.notificationClient}>{order.sensora_clients?.name || 'Cliente'}</Text>
                   <Text style={styles.notificationDate}>{new Date(order.created_at).toLocaleString('es-ES')}</Text>
-                </View>
+                </Pressable>
               ))}
             </ScrollView>
           </View>
@@ -1288,6 +1360,63 @@ export default function App() {
     </SafeAreaView>
   );
 
+  const renderFragranceOrderDetail = (order: FragranceOrder) => {
+    const client = order.sensora_clients;
+    const installation = order.sensora_installations;
+    const clientFields = [
+      ['Cliente', client?.name],
+      ['Empresa o sector', client?.company_name],
+      ['Persona de contacto', client?.contact_name],
+      ['Correo', client?.email],
+      ['Teléfono', client?.phone],
+      ['Ciudad', client?.city],
+      ['Estado', client?.status],
+    ];
+    const installationFields = [
+      ['Zona', installation?.location_name],
+      ['Planta', installation?.floor_number],
+      ['Habitación', installation?.room_number],
+      ['Producto', installation?.product_name],
+      ['Aroma actual', installation?.scent],
+      ['Estado', installation?.status],
+    ];
+
+    return (
+      <SafeAreaView style={styles.safeAreaContent}>
+        <View style={styles.screenWrap}>
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <View style={[styles.layoutPanel, isMobile ? styles.layoutPanelMobile : styles.layoutPanelDesktop]}>
+              <View style={styles.topHeader}>
+                <Text style={styles.brandSmall}>SENSORA</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Volver a notificaciones" style={styles.detailBack} onPress={() => { setSelectedFragranceOrder(null); setShowNotifications(true); if (screen === 'pedidoAroma') navigateToScreen('comercial'); }}>
+                  <Text style={styles.detailBackText}>←</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.dateText}>PEDIDO DE AROMA</Text>
+              <Text style={styles.mainTitle}>{order.fragrance_name}</Text>
+              <Text style={styles.detailDate}>{new Date(order.created_at).toLocaleString('es-ES')}</Text>
+              <Text style={styles.detailSection}>Cliente</Text>
+              {clientFields.map(([label, value]) => (
+                <View key={label} style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>{label}</Text>
+                  <Text style={styles.detailValue}>{value || 'No indicado'}</Text>
+                </View>
+              ))}
+              <Text style={styles.detailSection}>Instalación</Text>
+              {installation ? installationFields.map(([label, value]) => (
+                <View key={label} style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>{label}</Text>
+                  <Text style={styles.detailValue}>{value || 'No indicado'}</Text>
+                </View>
+              )) : <Text style={styles.emptyInstallations}>Este pedido no tiene una instalación registrada.</Text>}
+            </View>
+          </ScrollView>
+          {renderBottomNav()}
+        </View>
+      </SafeAreaView>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
@@ -1295,8 +1424,66 @@ export default function App() {
       {screen === 'administrador' && renderAdminDashboard()}
       {screen === 'adminSolicitudes' && renderAdminSolicitudes()}
       {screen === 'catalogo' && (currentRole === 'administrador' || currentRole === 'cliente') && renderCatalog()}
-      {screen === 'comercial' && renderCommercial()}
+      {screen === 'comercial' && (selectedFragranceOrder ? renderFragranceOrderDetail(selectedFragranceOrder) : renderCommercial())}
+      {screen === 'pedidoAroma' && currentRole === 'comercial' && (selectedFragranceOrder ? renderFragranceOrderDetail(selectedFragranceOrder) : (
+        <SafeAreaView style={styles.safeAreaContent}>
+          <View style={[styles.layoutPanel, isMobile ? styles.layoutPanelMobile : styles.layoutPanelDesktop]}>
+            <View style={styles.topHeader}>
+              <Text style={styles.brandSmall}>SENSORA</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Volver a Comercial" style={styles.detailBack} onPress={() => navigateToScreen('comercial')}>
+                <Text style={styles.detailBackText}>←</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.mainTitle}>Pedido de aroma</Text>
+            <Text style={styles.emptyInstallations}>{orderDetailError || 'Cargando pedido…'}</Text>
+          </View>
+        </SafeAreaView>
+      ))}
       {screen === 'cliente' && renderClient()}
+
+      {screen === 'catalogo' && currentRole === 'cliente' && requestedFragrance ? (
+        <View style={styles.moreOverlay}>
+          <View style={styles.orderDialog}>
+            <View style={styles.notificationHeader}>
+              <View style={styles.orderDialogHeading}>
+                <Text style={styles.dateText}>PEDIR AROMA</Text>
+                <Text style={styles.notificationTitle}>{requestedFragrance}</Text>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Cerrar selección de instalación" disabled={!!savingFragrance} onPress={closeFragranceOrder} style={styles.notificationClose}>
+                <Text style={styles.notificationCloseText}>×</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.orderDialogLabel}>Selecciona la instalación</Text>
+            <ScrollView style={styles.orderInstallationList} contentContainerStyle={styles.orderInstallationContent}>
+              {loadingOrderInstallations ? <Text style={styles.emptyInstallations}>Cargando instalaciones…</Text> : null}
+              {orderInstallationError ? (
+                <View>
+                  <Text style={styles.emptyInstallations}>{orderInstallationError}</Text>
+                  <Pressable accessibilityRole="button" onPress={() => void openFragranceOrder(requestedFragrance)} style={styles.orderRetry}>
+                    <Text style={styles.fragranceButtonText}>Reintentar</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              {!loadingOrderInstallations && !orderInstallationError && orderInstallations.length === 0 ? <Text style={styles.emptyInstallations}>No tienes instalaciones registradas. Contacta con tu comercial.</Text> : null}
+              {orderInstallations.map((installation) => (
+                <Pressable key={installation.id} accessibilityRole="radio" accessibilityState={{ checked: selectedOrderInstallation === installation.id }} disabled={!!savingFragrance} style={[styles.orderInstallationOption, selectedOrderInstallation === installation.id && styles.orderInstallationSelected]} onPress={() => setSelectedOrderInstallation(installation.id)}>
+                  <Text style={styles.orderInstallationName}>{installation.location_name}</Text>
+                  <Text style={styles.orderInstallationDetail}>{[installation.floor_number ? `Planta ${installation.floor_number}` : '', installation.room_number ? `Habitación ${installation.room_number}` : '', installation.product_name].filter(Boolean).join(' • ')}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {fragranceMessage ? <Text style={styles.orderError}>{fragranceMessage}</Text> : null}
+            <View style={styles.orderDialogActions}>
+              <Pressable accessibilityRole="button" disabled={!!savingFragrance} style={styles.orderCancel} onPress={closeFragranceOrder}>
+                <Text style={styles.orderCancelText}>Cancelar</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" disabled={!selectedOrderInstallation || !!savingFragrance} style={[styles.orderConfirm, (!selectedOrderInstallation || !!savingFragrance) && styles.loginButtonDisabled]} onPress={() => void handleFragranceOrder(requestedFragrance)}>
+                <Text style={styles.fragranceButtonText}>{savingFragrance ? 'Enviando…' : 'Confirmar pedido'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       {currentRole === 'administrador' && showMoreMenu ? (
         <View style={styles.moreOverlay}>
@@ -1469,6 +1656,28 @@ const styles = StyleSheet.create({
   notificationOrder: { color: colors.dark, fontSize: 14, fontWeight: '700' },
   notificationClient: { color: colors.dark, fontSize: 13, marginTop: 4 },
   notificationDate: { color: colors.muted, fontSize: 11, marginTop: 4 },
+  detailBack: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line },
+  detailBackText: { color: colors.dark, fontSize: 24 },
+  detailDate: { color: colors.muted, fontSize: 13, marginTop: -8, marginBottom: 8 },
+  detailSection: { color: colors.dark, fontFamily: 'Georgia', fontSize: 20, fontWeight: '700', marginTop: 22, marginBottom: 8 },
+  detailRow: { flexDirection: 'row', alignItems: 'flex-start', borderBottomWidth: 1, borderColor: colors.line, paddingVertical: 11, gap: 12 },
+  detailLabel: { color: colors.muted, fontSize: 13, width: 125 },
+  detailValue: { color: colors.dark, fontSize: 14, flex: 1 },
+  orderDialog: { width: '100%', maxWidth: 480, maxHeight: '80%', backgroundColor: colors.card, borderRadius: 8, borderWidth: 1, borderColor: colors.gold, overflow: 'hidden' },
+  orderDialogHeading: { flex: 1 },
+  orderDialogLabel: { color: colors.dark, fontWeight: '700', fontSize: 14, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
+  orderInstallationList: { flexGrow: 0, flexShrink: 1 },
+  orderInstallationContent: { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
+  orderInstallationOption: { borderWidth: 1, borderColor: colors.line, borderRadius: 8, padding: 12 },
+  orderInstallationSelected: { borderColor: colors.dark, backgroundColor: colors.goldSoft },
+  orderInstallationName: { color: colors.dark, fontSize: 14, fontWeight: '700' },
+  orderInstallationDetail: { color: colors.muted, fontSize: 12, marginTop: 4 },
+  orderRetry: { alignSelf: 'flex-start', backgroundColor: colors.gold, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },
+  orderError: { color: colors.red, fontSize: 13, paddingHorizontal: 16, paddingBottom: 8 },
+  orderDialogActions: { flexDirection: 'row', gap: 10, padding: 16, borderTopWidth: 1, borderColor: colors.line },
+  orderCancel: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 8 },
+  orderCancelText: { color: colors.dark, fontSize: 13, fontWeight: '700' },
+  orderConfirm: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.gold, borderRadius: 8 },
   emptyInstallations: { color: colors.muted, fontSize: 13, paddingVertical: 10 },
   addInstallationButton: { marginTop: 14 },
   formInput: { minHeight: 46, color: colors.dark, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line, borderRadius: 10, paddingHorizontal: 12, marginTop: 10, fontSize: 14 },
