@@ -215,11 +215,7 @@ export default function App() {
   const [detailOrderId, setDetailOrderId] = useState<string | null>(getFragranceOrderIdFromLocation);
   const [orderDetailError, setOrderDetailError] = useState('');
   const [requestedFragrance, setRequestedFragrance] = useState<string | null>(null);
-  const [orderInstallations, setOrderInstallations] = useState<InstallationRecord[]>([]);
-  const [selectedOrderInstallation, setSelectedOrderInstallation] = useState('');
-  const [loadingOrderInstallations, setLoadingOrderInstallations] = useState(false);
-  const [orderInstallationError, setOrderInstallationError] = useState('');
-  const orderInstallationRequest = useRef(0);
+  const [placementDetails, setPlacementDetails] = useState('');
   const fragranceOrderBusy = useRef(false);
   const unreadOrders = fragranceOrders.filter((order) => !order.read_at).length;
   const isMobile = width < 900;
@@ -445,7 +441,6 @@ export default function App() {
     setShowNotifications(false);
     setSelectedFragranceOrder(null);
     setRequestedFragrance(null);
-    orderInstallationRequest.current += 1;
     setFragranceOrders([]);
     setFragranceStock([]);
     setFragranceMessage('');
@@ -594,37 +589,24 @@ export default function App() {
     return () => { active = false; clearInterval(interval); };
   }, [isAuthenticated, currentRole]);
 
-  const openFragranceOrder = async (name: string) => {
-    const request = ++orderInstallationRequest.current;
+  const openFragranceOrder = (name: string) => {
     setRequestedFragrance(name);
-    setSelectedOrderInstallation('');
-    setOrderInstallations([]);
-    setOrderInstallationError('');
+    setPlacementDetails('');
     setFragranceMessage('');
-    setLoadingOrderInstallations(true);
-    try {
-      const installations = await loadInstallations();
-      if (request === orderInstallationRequest.current) setOrderInstallations(installations);
-    } catch {
-      if (request === orderInstallationRequest.current) setOrderInstallationError('No se pudieron cargar tus instalaciones.');
-    } finally {
-      if (request === orderInstallationRequest.current) setLoadingOrderInstallations(false);
-    }
   };
 
   const closeFragranceOrder = () => {
-    orderInstallationRequest.current += 1;
     setRequestedFragrance(null);
     setFragranceMessage('');
   };
 
   const handleFragranceOrder = async (name: string) => {
-    if (fragranceOrderBusy.current || !selectedOrderInstallation) return;
+    if (fragranceOrderBusy.current || !placementDetails.trim()) return;
     fragranceOrderBusy.current = true;
     setSavingFragrance(name);
     setFragranceMessage('');
     try {
-      await orderFragrance(name, selectedOrderInstallation);
+      await orderFragrance(name, placementDetails);
       setRequestedFragrance(null);
       setFragranceMessage(`Pedido de ${name} enviado a tu comercial.`);
       try {
@@ -1000,7 +982,7 @@ export default function App() {
                           : 'Stock no disponible'}
                       </Text>
                       {currentRole === 'cliente' ? (
-                        <Pressable accessibilityRole="button" disabled={!!savingFragrance} style={[styles.fragranceButton, !!savingFragrance && styles.loginButtonDisabled]} onPress={() => void openFragranceOrder(sample.name)}>
+                        <Pressable accessibilityRole="button" disabled={!!savingFragrance} style={[styles.fragranceButton, !!savingFragrance && styles.loginButtonDisabled]} onPress={() => openFragranceOrder(sample.name)}>
                           <Text style={styles.fragranceButtonText}>Pedir aroma</Text>
                         </Pressable>
                       ) : currentRole === 'administrador' ? (
@@ -1402,13 +1384,19 @@ export default function App() {
                   <Text style={styles.detailValue}>{value || 'No indicado'}</Text>
                 </View>
               ))}
-              <Text style={styles.detailSection}>Instalación</Text>
-              {installation ? installationFields.map(([label, value]) => (
-                <View key={label} style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>{label}</Text>
-                  <Text style={styles.detailValue}>{value || 'No indicado'}</Text>
-                </View>
-              )) : <Text style={styles.emptyInstallations}>Este pedido no tiene una instalación registrada.</Text>}
+              {installation ? (
+                <>
+                  <Text style={styles.detailSection}>Instalación</Text>
+                  {installationFields.map(([label, value]) => (
+                    <View key={label} style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>{label}</Text>
+                      <Text style={styles.detailValue}>{value || 'No indicado'}</Text>
+                    </View>
+                  ))}
+                </>
+              ) : null}
+              <Text style={styles.detailSection}>Ubicación indicada por el cliente</Text>
+              <Text style={styles.placementDetail}>{order.placement_details || 'No indicada en este pedido.'}</Text>
             </View>
           </ScrollView>
           {renderBottomNav()}
@@ -1449,35 +1437,30 @@ export default function App() {
                 <Text style={styles.dateText}>PEDIR AROMA</Text>
                 <Text style={styles.notificationTitle}>{requestedFragrance}</Text>
               </View>
-              <Pressable accessibilityRole="button" accessibilityLabel="Cerrar selección de instalación" disabled={!!savingFragrance} onPress={closeFragranceOrder} style={styles.notificationClose}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Cerrar pedido de aroma" disabled={!!savingFragrance} onPress={closeFragranceOrder} style={styles.notificationClose}>
                 <Text style={styles.notificationCloseText}>×</Text>
               </Pressable>
             </View>
-            <Text style={styles.orderDialogLabel}>Selecciona la instalación</Text>
-            <ScrollView style={styles.orderInstallationList} contentContainerStyle={styles.orderInstallationContent}>
-              {loadingOrderInstallations ? <Text style={styles.emptyInstallations}>Cargando instalaciones…</Text> : null}
-              {orderInstallationError ? (
-                <View>
-                  <Text style={styles.emptyInstallations}>{orderInstallationError}</Text>
-                  <Pressable accessibilityRole="button" onPress={() => void openFragranceOrder(requestedFragrance)} style={styles.orderRetry}>
-                    <Text style={styles.fragranceButtonText}>Reintentar</Text>
-                  </Pressable>
-                </View>
-              ) : null}
-              {!loadingOrderInstallations && !orderInstallationError && orderInstallations.length === 0 ? <Text style={styles.emptyInstallations}>No tienes instalaciones registradas. Contacta con tu comercial.</Text> : null}
-              {orderInstallations.map((installation) => (
-                <Pressable key={installation.id} accessibilityRole="radio" accessibilityState={{ checked: selectedOrderInstallation === installation.id }} disabled={!!savingFragrance} style={[styles.orderInstallationOption, selectedOrderInstallation === installation.id && styles.orderInstallationSelected]} onPress={() => setSelectedOrderInstallation(installation.id)}>
-                  <Text style={styles.orderInstallationName}>{installation.location_name}</Text>
-                  <Text style={styles.orderInstallationDetail}>{[installation.floor_number ? `Planta ${installation.floor_number}` : '', installation.room_number ? `Habitación ${installation.room_number}` : '', installation.product_name].filter(Boolean).join(' • ')}</Text>
-                </Pressable>
-              ))}
+            <ScrollView style={styles.orderInstallationList} contentContainerStyle={styles.orderInstallationContent} keyboardShouldPersistTaps="handled">
+              <Text style={styles.placementLabel}>¿Dónde colocamos el ambientador?</Text>
+              <TextInput
+                accessibilityLabel="Ubicación del ambientador"
+                style={styles.placementInput}
+                value={placementDetails}
+                onChangeText={setPlacementDetails}
+                placeholder="Ej.: junto a la puerta de recepción"
+                placeholderTextColor={colors.muted}
+                multiline
+                maxLength={500}
+                editable={!savingFragrance}
+              />
             </ScrollView>
             {fragranceMessage ? <Text style={styles.orderError}>{fragranceMessage}</Text> : null}
             <View style={styles.orderDialogActions}>
               <Pressable accessibilityRole="button" disabled={!!savingFragrance} style={styles.orderCancel} onPress={closeFragranceOrder}>
                 <Text style={styles.orderCancelText}>Cancelar</Text>
               </Pressable>
-              <Pressable accessibilityRole="button" disabled={!selectedOrderInstallation || !!savingFragrance} style={[styles.orderConfirm, (!selectedOrderInstallation || !!savingFragrance) && styles.loginButtonDisabled]} onPress={() => void handleFragranceOrder(requestedFragrance)}>
+              <Pressable accessibilityRole="button" disabled={!placementDetails.trim() || !!savingFragrance} style={[styles.orderConfirm, (!placementDetails.trim() || !!savingFragrance) && styles.loginButtonDisabled]} onPress={() => void handleFragranceOrder(requestedFragrance)}>
                 <Text style={styles.fragranceButtonText}>{savingFragrance ? 'Enviando…' : 'Confirmar pedido'}</Text>
               </Pressable>
             </View>
@@ -1663,16 +1646,13 @@ const styles = StyleSheet.create({
   detailRow: { flexDirection: 'row', alignItems: 'flex-start', borderBottomWidth: 1, borderColor: colors.line, paddingVertical: 11, gap: 12 },
   detailLabel: { color: colors.muted, fontSize: 13, width: 125 },
   detailValue: { color: colors.dark, fontSize: 14, flex: 1 },
+  placementDetail: { color: colors.dark, fontSize: 14, lineHeight: 21 },
   orderDialog: { width: '100%', maxWidth: 480, maxHeight: '80%', backgroundColor: colors.card, borderRadius: 8, borderWidth: 1, borderColor: colors.gold, overflow: 'hidden' },
   orderDialogHeading: { flex: 1 },
-  orderDialogLabel: { color: colors.dark, fontWeight: '700', fontSize: 14, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
   orderInstallationList: { flexGrow: 0, flexShrink: 1 },
   orderInstallationContent: { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
-  orderInstallationOption: { borderWidth: 1, borderColor: colors.line, borderRadius: 8, padding: 12 },
-  orderInstallationSelected: { borderColor: colors.dark, backgroundColor: colors.goldSoft },
-  orderInstallationName: { color: colors.dark, fontSize: 14, fontWeight: '700' },
-  orderInstallationDetail: { color: colors.muted, fontSize: 12, marginTop: 4 },
-  orderRetry: { alignSelf: 'flex-start', backgroundColor: colors.gold, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 },
+  placementLabel: { color: colors.dark, fontWeight: '700', fontSize: 14, marginTop: 10 },
+  placementInput: { minHeight: 90, backgroundColor: colors.white, color: colors.dark, borderWidth: 1, borderColor: colors.line, borderRadius: 8, padding: 12, fontSize: 14, textAlignVertical: 'top' },
   orderError: { color: colors.red, fontSize: 13, paddingHorizontal: 16, paddingBottom: 8 },
   orderDialogActions: { flexDirection: 'row', gap: 10, padding: 16, borderTopWidth: 1, borderColor: colors.line },
   orderCancel: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 8 },

@@ -10,6 +10,7 @@ export interface FragranceOrder {
   fragrance_name: string;
   created_at: string;
   read_at: string | null;
+  placement_details: string | null;
   sensora_clients: {
     name: string;
     company_name: string;
@@ -29,7 +30,7 @@ export interface FragranceOrder {
   } | null;
 }
 
-const fragranceOrderFields = 'id, fragrance_name, created_at, read_at, sensora_clients(name, company_name, contact_name, email, phone, city, status), sensora_installations(location_name, floor_number, room_number, product_name, scent, status)';
+const fragranceOrderFields = 'id, fragrance_name, created_at, read_at, placement_details, sensora_clients(name, company_name, contact_name, email, phone, city, status), sensora_installations(location_name, floor_number, room_number, product_name, scent, status)';
 
 export const loadFragranceStock = async (): Promise<FragranceStock[]> => {
   if (!supabase) throw new Error('La conexión con Supabase no está configurada.');
@@ -45,12 +46,13 @@ export const updateFragranceStock = async (name: string, quantity: number): Prom
   if (error || !data) throw new Error('No se pudo actualizar el stock.');
 };
 
-export const orderFragrance = async (name: string, installationId: string): Promise<void> => {
+export const orderFragrance = async (name: string, placementDetails: string): Promise<void> => {
   if (!supabase) throw new Error('La conexión con Supabase no está configurada.');
-  const { error } = await supabase.rpc('sensora_order_fragrance', { requested_name: name, requested_installation_id: installationId });
+  const { error } = await supabase.rpc('sensora_order_fragrance', { requested_name: name, requested_installation_id: null, requested_placement_details: placementDetails.trim() });
   if (error) {
     if (error.message.includes('stock disponible')) throw new Error('Este aroma no tiene stock disponible.');
     if (error.message.includes('comercial asignado')) throw new Error('No tienes un comercial asignado.');
+    if (error.message.includes('dónde colocar')) throw new Error('Indica dónde colocar el ambientador.');
     if (error.message.includes('instalación')) throw new Error('La instalación seleccionada ya no está disponible.');
     throw new Error('No se pudo realizar el pedido. Inténtalo de nuevo.');
   }
